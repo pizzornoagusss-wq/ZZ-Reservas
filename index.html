@@ -302,6 +302,23 @@
     background: var(--bordo-oscuro);
   }
 
+  .enlace-secundario {
+    display: block;
+    width: 100%;
+    min-height: 40px;
+    margin-top: 10px;
+    padding: 8px 10px;
+    background: transparent;
+    color: var(--bordo);
+    font-size: 14px;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  .enlace-secundario:hover {
+    background: var(--bordo-suave);
+  }
+
   .cancelar {
     background: var(--bordo-suave);
     color: var(--bordo);
@@ -608,6 +625,65 @@
     </button>
 
     <div id="mensajeLogin" class="mensaje"></div>
+
+    <button type="button" class="enlace-secundario" onclick="mostrarRecuperacion()">
+      ¿Olvidaste tu contraseña?
+    </button>
+  </section>
+
+  <section id="recuperacion" class="panel oculto">
+    <h2>Recuperar contraseña</h2>
+    <p class="seccion-descripcion">
+      Te enviaremos un código de verificación al correo electrónico registrado en tu cuenta.
+    </p>
+
+    <div id="pasoRecuperacionDni">
+      <label for="dniRecuperacion">DNI</label>
+      <input id="dniRecuperacion" type="text" inputmode="numeric"
+        pattern="[0-9]*" autocomplete="off" placeholder="Ingresá tu DNI">
+      <button type="button" id="btnSolicitarCodigo" class="principal"
+        onclick="solicitarCodigoRecuperacion()">
+        Enviar código
+      </button>
+    </div>
+
+    <div id="pasoRecuperacionCodigo" class="oculto">
+      <p class="seccion-descripcion">
+        Si los datos corresponden a una cuenta con correo registrado, recibirás un código de 6 dígitos.
+        Tiene una validez de 10 minutos.
+      </p>
+      <label for="codigoRecuperacion">Código de verificación</label>
+      <input id="codigoRecuperacion" type="text" inputmode="numeric"
+        pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code"
+        placeholder="Ingresá el código de 6 dígitos">
+      <button type="button" id="btnVerificarCodigo" class="principal"
+        onclick="verificarCodigoRecuperacion()">
+        Verificar código
+      </button>
+    </div>
+
+    <div id="pasoRecuperacionClave" class="oculto">
+      <p class="seccion-descripcion">
+        Código verificado. Elegí una nueva contraseña numérica de 6 dígitos.
+      </p>
+      <label for="nuevaClaveRecuperacion">Nueva contraseña</label>
+      <input id="nuevaClaveRecuperacion" type="password" inputmode="numeric"
+        pattern="[0-9]{6}" maxlength="6" autocomplete="new-password"
+        placeholder="6 números">
+      <label for="confirmarClaveRecuperacion">Repetir nueva contraseña</label>
+      <input id="confirmarClaveRecuperacion" type="password" inputmode="numeric"
+        pattern="[0-9]{6}" maxlength="6" autocomplete="new-password"
+        placeholder="Repetí los 6 números">
+      <button type="button" id="btnRestablecerClave" class="principal"
+        onclick="restablecerContrasena()">
+        Guardar nueva contraseña
+      </button>
+    </div>
+
+    <p id="mensajeRecuperacion" class="mensaje" aria-live="polite"></p>
+    <button type="button" class="enlace-secundario" onclick="volverAlLogin()">
+      Volver al inicio de sesión
+    </button>
   </section>
 
   <section id="aplicacion" class="oculto">
@@ -692,6 +768,8 @@
 <script>
   let token = null;
   let abonoVencidoEstado = false;
+  let dniEnRecuperacion = '';
+  let tokenRestablecimiento = '';
   const MENSAJE_ABONO_VENCIDO = 'Tu abono está vencido. Para reservar nuevas clases, primero necesitás renovarlo.';
 
   /* URL de la implementación /exec del backend (Apps Script).
@@ -702,7 +780,10 @@
   const API_FUNCIONES = [
     'portalLogin', 'portalDisponibilidad', 'portalCrearReserva',
     'portalMisReservas', 'portalCancelarReserva',
-    'portalCambiarContrasena', 'portalLogout'
+    'portalCambiarContrasena', 'portalLogout',
+    'portalSolicitarRecuperacion',
+    'portalVerificarCodigoRecuperacion',
+    'portalRestablecerContrasena'
   ];
 
   /* Cliente compatible con la interfaz de google.script.run, basado en fetch. */
@@ -821,6 +902,192 @@
     }
 
     badge.classList.remove('oculto');
+  }
+
+  function mostrarRecuperacion() {
+    document.getElementById('login').classList.add('oculto');
+    document.getElementById('recuperacion').classList.remove('oculto');
+    document.getElementById('pasoRecuperacionDni').classList.remove('oculto');
+    document.getElementById('pasoRecuperacionCodigo').classList.add('oculto');
+    document.getElementById('pasoRecuperacionClave').classList.add('oculto');
+    document.getElementById('dniRecuperacion').value =
+      document.getElementById('dni').value.trim();
+    document.getElementById('codigoRecuperacion').value = '';
+    document.getElementById('nuevaClaveRecuperacion').value = '';
+    document.getElementById('confirmarClaveRecuperacion').value = '';
+    dniEnRecuperacion = '';
+    tokenRestablecimiento = '';
+    mensaje('mensajeRecuperacion', '', '');
+    document.getElementById('dniRecuperacion').focus();
+  }
+
+  function volverAlLogin() {
+    document.getElementById('recuperacion').classList.add('oculto');
+    document.getElementById('login').classList.remove('oculto');
+    document.getElementById('pasoRecuperacionDni').classList.remove('oculto');
+    document.getElementById('pasoRecuperacionCodigo').classList.add('oculto');
+    document.getElementById('pasoRecuperacionClave').classList.add('oculto');
+    dniEnRecuperacion = '';
+    tokenRestablecimiento = '';
+    mensaje('mensajeRecuperacion', '', '');
+  }
+
+  function solicitarCodigoRecuperacion() {
+    const dni = document.getElementById('dniRecuperacion').value.trim();
+    if (!dni || !/^\d+$/.test(dni)) {
+      mensaje('mensajeRecuperacion', 'Ingresá un DNI válido.', 'error');
+      return;
+    }
+
+    const btn = document.getElementById('btnSolicitarCodigo');
+    btn.disabled = true;
+    mensaje('mensajeRecuperacion', 'Procesando solicitud...', '');
+
+    const servicio = servicioGoogle_();
+    if (!servicio) {
+      btn.disabled = false;
+      mensaje('mensajeRecuperacion',
+        'No se pudo conectar con el portal. Intentá nuevamente.',
+        'error');
+      return;
+    }
+
+    servicio
+      .withSuccessHandler(function(res) {
+        btn.disabled = false;
+        // Mensaje deliberadamente genérico: no revela si el DNI existe.
+        if (!res || !res.ok) {
+          mensaje('mensajeRecuperacion',
+            res && res.mensaje ? res.mensaje : 'Si los datos corresponden a una cuenta habilitada, recibirás un correo con las instrucciones.',
+            res && res.errorVisible ? 'error' : '');
+          return;
+        }
+
+        dniEnRecuperacion = dni;
+        document.getElementById('pasoRecuperacionDni').classList.add('oculto');
+        document.getElementById('pasoRecuperacionCodigo').classList.remove('oculto');
+        mensaje('mensajeRecuperacion',
+          res.mensaje || 'Si los datos corresponden a una cuenta habilitada, recibirás un correo con el código.',
+          'exito');
+        document.getElementById('codigoRecuperacion').focus();
+      })
+      .withFailureHandler(function() {
+        btn.disabled = false;
+        mensaje('mensajeRecuperacion',
+          'No se pudo procesar la solicitud. Intentá nuevamente.',
+          'error');
+      })
+      .portalSolicitarRecuperacion(dni);
+  }
+
+  function verificarCodigoRecuperacion() {
+    const codigo = document.getElementById('codigoRecuperacion').value.trim();
+    if (!/^\d{6}$/.test(codigo)) {
+      mensaje('mensajeRecuperacion', 'Ingresá el código de 6 dígitos que recibiste.', 'error');
+      return;
+    }
+
+    const btn = document.getElementById('btnVerificarCodigo');
+    btn.disabled = true;
+    mensaje('mensajeRecuperacion', 'Verificando código...', '');
+
+    const servicio = servicioGoogle_();
+    if (!servicio) {
+      btn.disabled = false;
+      mensaje('mensajeRecuperacion',
+        'No se pudo conectar con el portal. Intentá nuevamente.',
+        'error');
+      return;
+    }
+
+    servicio
+      .withSuccessHandler(function(res) {
+        btn.disabled = false;
+        if (!res || !res.ok || !res.tokenRestablecimiento) {
+          mensaje('mensajeRecuperacion',
+            res && res.mensaje ? res.mensaje : 'El código no es válido o venció. Solicitá uno nuevo.',
+            'error');
+          return;
+        }
+
+        tokenRestablecimiento = res.tokenRestablecimiento;
+        document.getElementById('pasoRecuperacionCodigo').classList.add('oculto');
+        document.getElementById('pasoRecuperacionClave').classList.remove('oculto');
+        mensaje('mensajeRecuperacion', 'Código verificado. Ya podés elegir una nueva contraseña.', 'exito');
+        document.getElementById('nuevaClaveRecuperacion').focus();
+      })
+      .withFailureHandler(function() {
+        btn.disabled = false;
+        mensaje('mensajeRecuperacion',
+          'No se pudo verificar el código. Intentá nuevamente.',
+          'error');
+      })
+      .portalVerificarCodigoRecuperacion(dniEnRecuperacion, codigo);
+  }
+
+  function restablecerContrasena() {
+    const nueva = document.getElementById('nuevaClaveRecuperacion').value;
+    const confirmar = document.getElementById('confirmarClaveRecuperacion').value;
+
+    if (!/^\d{6}$/.test(nueva)) {
+      mensaje('mensajeRecuperacion', 'La nueva contraseña debe tener exactamente 6 números.', 'error');
+      return;
+    }
+    if (nueva !== confirmar) {
+      mensaje('mensajeRecuperacion', 'Las contraseñas no coinciden.', 'error');
+      return;
+    }
+    if (!dniEnRecuperacion || !tokenRestablecimiento) {
+      mensaje('mensajeRecuperacion',
+        'La verificación no está vigente. Volvé a solicitar un código.',
+        'error');
+      return;
+    }
+
+    const btn = document.getElementById('btnRestablecerClave');
+    btn.disabled = true;
+    mensaje('mensajeRecuperacion', 'Actualizando contraseña...', '');
+
+    const servicio = servicioGoogle_();
+    if (!servicio) {
+      btn.disabled = false;
+      mensaje('mensajeRecuperacion',
+        'No se pudo conectar con el portal. Intentá nuevamente.',
+        'error');
+      return;
+    }
+
+    servicio
+      .withSuccessHandler(function(res) {
+        btn.disabled = false;
+        if (!res || !res.ok) {
+          mensaje('mensajeRecuperacion',
+            res && res.mensaje ? res.mensaje : 'No se pudo restablecer la contraseña.',
+            'error');
+          return;
+        }
+
+        document.getElementById('pin').value = '';
+        document.getElementById('dni').value = dniEnRecuperacion;
+        document.getElementById('nuevaClaveRecuperacion').value = '';
+        document.getElementById('confirmarClaveRecuperacion').value = '';
+        tokenRestablecimiento = '';
+        mensaje('mensajeRecuperacion',
+          res.mensaje || 'Tu contraseña se actualizó. Ya podés ingresar.',
+          'exito');
+
+        window.setTimeout(function() {
+          volverAlLogin();
+          mensaje('mensajeLogin', 'Contraseña actualizada. Ingresá con tu nueva contraseña.', 'exito');
+        }, 1400);
+      })
+      .withFailureHandler(function() {
+        btn.disabled = false;
+        mensaje('mensajeRecuperacion',
+          'Ocurrió un error al actualizar la contraseña. Intentá nuevamente.',
+          'error');
+      })
+      .portalRestablecerContrasena(dniEnRecuperacion, tokenRestablecimiento, nueva);
   }
 
   function iniciarSesion() {
@@ -1230,6 +1497,24 @@
   document.getElementById('pin').addEventListener('keydown', function(evento) {
     if (evento.key === 'Enter' || evento.keyCode === 13) {
       iniciarSesion();
+    }
+  });
+
+  document.getElementById('dniRecuperacion').addEventListener('keydown', function(evento) {
+    if (evento.key === 'Enter' || evento.keyCode === 13) {
+      solicitarCodigoRecuperacion();
+    }
+  });
+
+  document.getElementById('codigoRecuperacion').addEventListener('keydown', function(evento) {
+    if (evento.key === 'Enter' || evento.keyCode === 13) {
+      verificarCodigoRecuperacion();
+    }
+  });
+
+  document.getElementById('confirmarClaveRecuperacion').addEventListener('keydown', function(evento) {
+    if (evento.key === 'Enter' || evento.keyCode === 13) {
+      restablecerContrasena();
     }
   });
 
